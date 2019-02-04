@@ -5,17 +5,43 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.firebase.ml.common.FirebaseMLException;
+import com.google.firebase.ml.common.modeldownload.FirebaseCloudModelSource;
+import com.google.firebase.ml.common.modeldownload.FirebaseLocalModelSource;
+import com.google.firebase.ml.common.modeldownload.FirebaseModelDownloadConditions;
+import com.google.firebase.ml.common.modeldownload.FirebaseModelManager;
+import com.google.firebase.ml.custom.FirebaseModelDataType;
+import com.google.firebase.ml.custom.FirebaseModelInputOutputOptions;
+import com.google.firebase.ml.custom.FirebaseModelInputs;
+import com.google.firebase.ml.custom.FirebaseModelInterpreter;
+import com.google.firebase.ml.custom.FirebaseModelOptions;
+import com.google.firebase.ml.custom.FirebaseModelOutputs;
+import com.google.firebase.ml.vision.FirebaseVision;
+import com.google.firebase.ml.vision.common.FirebaseVisionImage;
+import com.google.firebase.ml.vision.label.FirebaseVisionImageLabel;
+import com.google.firebase.ml.vision.label.FirebaseVisionImageLabeler;
+
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
     public static final int PICK_IMAGE = 1;
@@ -52,19 +78,26 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == PICK_IMAGE) {
-            ImageView image = findViewById(R.id.picture);
-            InputStream inputStream = null;
+            Uri uri = data.getData();
+            Bitmap bitmap = null;
             try {
-                inputStream = this.getContentResolver().openInputStream(data.getData());
-            } catch (FileNotFoundException e) {
+                bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
+            } catch (IOException e) {
                 e.printStackTrace();
             }
-            image.setImageURI(data.getData());
+            try {
+                labelImage(bitmap);
+            } catch (FirebaseMLException e) {
+                e.printStackTrace();
+            }
         }
         if (requestCode == CAMERA_REQUEST && resultCode == Activity.RESULT_OK) {
             Bitmap photo = (Bitmap) data.getExtras().get("data");
-            ImageView image = findViewById(R.id.picture);
-            image.setImageBitmap(photo);
+            try {
+                labelImage(photo);
+            } catch (FirebaseMLException e) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -83,4 +116,71 @@ public class MainActivity extends AppCompatActivity {
 
         }
     }
+
+    private void labelImage(Bitmap bitmap) throws FirebaseMLException {
+
+        FirebaseLocalModelSource localSource =
+                new FirebaseLocalModelSource.Builder("banana-ripeness")
+                        .setAssetFilePath("optimized_graph.tflite")
+                        .build();
+        FirebaseModelManager.getInstance().registerLocalModelSource(localSource);
+
+        FirebaseModelOptions options = new FirebaseModelOptions.Builder()
+                .setLocalModelName("banana-ripeness")
+                .build();
+        FirebaseModelInterpreter firebaseInterpreter  =
+                    FirebaseModelInterpreter.getInstance(options);
+        FirebaseModelInputOutputOptions inputOutputOptions  = new FirebaseModelInputOutputOptions.Builder()
+                            .setInputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 224, 224, 3})
+                            .setOutputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 5})
+                            .build();
+        bitmap = Bitmap.createScaledBitmap(bitmap, 224, 224, true);
+        int batchNum = 0;
+        float[][][][] input = new float[1][224][224][3];
+        for (int x = 0; x < 224; x++) {
+            for (int y = 0; y < 224; y++) {
+                int pixel = bitmap.getPixel(x, y);
+                input[batchNum][x][y][0] = (Color.red(pixel) - 127) / 128.0f;
+                input[batchNum][x][y][1] = (Color.green(pixel) - 127) / 128.0f;
+                input[batchNum][x][y][2] = (Color.blue(pixel) - 127) / 128.0f;
+            }
+        }
+            FirebaseModelInputs inputs = new FirebaseModelInputs.Builder()
+                    .add(input)
+                    .build();
+            firebaseInterpreter.run(inputs, inputOutputOptions)
+                    .addOnSuccessListener(
+                            new OnSuccessListener<FirebaseModelOutputs>() {
+                                @Override
+                                public void onSuccess(FirebaseModelOutputs result) {
+                                    float[][] output = result.getOutput(0);
+                                    float[] probabilities = output[0];
+                                    StringBuilder sb = new StringBuilder();
+                                    TextView textView = findViewById(R.id.label);
+                                    try {
+                                        BufferedReader reader = new BufferedReader(
+                                                new InputStreamReader(getAssets().open("retrained_labels.txt")));
+                                        for (int i = 0; i < probabilities.length; i++) {
+                                            String label = reader.readLine();
+                                            sb.append(String.format("%s: %1.4f", label, probabilities[i]));
+                                            sb.append("\n");
+                                        }
+                                        textView.setText(sb.toString());
+                                    } catch (IOException e) {
+                                        e.printStackTrace();
+                                    }
+                                }
+                            })
+                    .addOnFailureListener(
+                            new OnFailureListener() {
+                                @Override
+                                public void onFailure(@NonNull Exception e) {
+                                    // Task failed with an exception
+                                    // ...
+                                }
+                            });
+
+    }
+
+
 }
