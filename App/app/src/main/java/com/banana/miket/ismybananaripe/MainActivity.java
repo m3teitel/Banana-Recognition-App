@@ -47,12 +47,27 @@ public class MainActivity extends AppCompatActivity {
     public static final int PICK_IMAGE = 1;
     private static final int CAMERA_REQUEST = 1888;
     private static final int MY_CAMERA_PERMISSION_CODE = 100;
-
+    private FirebaseModelInterpreter firebaseInterpreter  = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        FirebaseLocalModelSource localSource =
+                new FirebaseLocalModelSource.Builder("banana-ripeness")
+                        .setAssetFilePath("optimized_graph.tflite")
+                        .build();
+        FirebaseModelManager.getInstance().registerLocalModelSource(localSource);
+
+        FirebaseModelOptions options = new FirebaseModelOptions.Builder()
+                .setLocalModelName("banana-ripeness")
+                .build();
+        try {
+            firebaseInterpreter =
+                    FirebaseModelInterpreter.getInstance(options);
+        } catch (FirebaseMLException e){
+            e.printStackTrace();
+        }
     }
 
     public void selectFromDeviceButton(View view) {
@@ -83,12 +98,14 @@ public class MainActivity extends AppCompatActivity {
             try {
                 bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
             } catch (IOException e) {
-                e.printStackTrace();
+                TextView textView = findViewById(R.id.label);
+                textView.setText(e.getMessage());
             }
             try {
                 labelImage(bitmap);
             } catch (FirebaseMLException e) {
-                e.printStackTrace();
+                TextView textView = findViewById(R.id.label);
+                textView.setText(e.getMessage());
             }
         }
         if (requestCode == CAMERA_REQUEST && resultCode == Activity.RESULT_OK) {
@@ -118,18 +135,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void labelImage(Bitmap bitmap) throws FirebaseMLException {
-
-        FirebaseLocalModelSource localSource =
-                new FirebaseLocalModelSource.Builder("banana-ripeness")
-                        .setAssetFilePath("optimized_graph.tflite")
-                        .build();
-        FirebaseModelManager.getInstance().registerLocalModelSource(localSource);
-
-        FirebaseModelOptions options = new FirebaseModelOptions.Builder()
-                .setLocalModelName("banana-ripeness")
-                .build();
-        FirebaseModelInterpreter firebaseInterpreter  =
-                    FirebaseModelInterpreter.getInstance(options);
         FirebaseModelInputOutputOptions inputOutputOptions  = new FirebaseModelInputOutputOptions.Builder()
                             .setInputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 224, 224, 3})
                             .setOutputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 5})
@@ -157,6 +162,7 @@ public class MainActivity extends AppCompatActivity {
                                     float[] probabilities = output[0];
                                     StringBuilder sb = new StringBuilder();
                                     TextView textView = findViewById(R.id.label);
+                                    textView.setText("Hello");
                                     try {
                                         BufferedReader reader = new BufferedReader(
                                                 new InputStreamReader(getAssets().open("retrained_labels.txt")));
@@ -175,8 +181,8 @@ public class MainActivity extends AppCompatActivity {
                             new OnFailureListener() {
                                 @Override
                                 public void onFailure(@NonNull Exception e) {
-                                    // Task failed with an exception
-                                    // ...
+                                    TextView label = findViewById(R.id.label);
+                                    label.setText("FAILED");
                                 }
                             });
 
