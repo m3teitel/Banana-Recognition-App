@@ -137,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
     private void labelImage(Bitmap bitmap) throws FirebaseMLException {
         FirebaseModelInputOutputOptions inputOutputOptions  = new FirebaseModelInputOutputOptions.Builder()
                             .setInputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 224, 224, 3})
-                            .setOutputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 5})
+                            .setOutputFormat(0, FirebaseModelDataType.FLOAT32, new int[]{1, 3})
                             .build();
         bitmap = Bitmap.createScaledBitmap(bitmap, 224, 224, true);
         int batchNum = 0;
@@ -182,7 +182,7 @@ public class MainActivity extends AppCompatActivity {
                                 @Override
                                 public void onFailure(@NonNull Exception e) {
                                     TextView label = findViewById(R.id.label);
-                                    label.setText("FAILED");
+                                    e.printStackTrace();
                                 }
                             });
 
